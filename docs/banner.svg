@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1c2a44" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="flow" x1="0" x2="1">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="#0b1324"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+
+  <!-- PTZ camera -->
+  <g transform="translate(120 170)">
+    <rect x="40" y="200" width="140" height="26" rx="8" fill="#cbd5e1"/>
+    <rect x="70" y="150" width="80" height="56" rx="10" fill="#e2e8f0"/>
+    <circle cx="110" cy="90" r="78" fill="#f8fafc"/>
+    <circle cx="110" cy="90" r="46" fill="#0f172a"/>
+    <circle cx="110" cy="90" r="28" fill="#1e3a5f"/>
+    <circle cx="98" cy="78" r="9" fill="#7dd3fc" opacity=".8"/>
+    <path d="M110 226 C110 300 200 330 300 330" fill="none" stroke="#94a3b8" stroke-width="6"/>
+  </g>
+
+  <!-- Android phone -->
+  <g transform="translate(410 430)">
+    <rect width="70" height="120" rx="12" fill="#334155"/>
+    <rect x="6" y="12" width="58" height="92" rx="4" fill="#0f172a"/>
+    <circle cx="35" cy="112" r="3" fill="#64748b"/>
+  </g>
+
+  <!-- stream to browser -->
+  <path d="M490 470 C560 470 560 330 640 330" fill="none" stroke="url(#flow)" stroke-width="4" stroke-dasharray="10 8"/>
+
+  <!-- browser window -->
+  <g transform="translate(640 230)">
+    <rect width="300" height="200" rx="10" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+    <rect width="300" height="26" rx="10" fill="#334155"/>
+    <circle cx="16" cy="13" r="5" fill="#f87171"/><circle cx="32" cy="13" r="5" fill="#fbbf24"/><circle cx="48" cy="13" r="5" fill="#34d399"/>
+    <rect x="10" y="36" width="280" height="154" rx="6" fill="#0f2740"/>
+    <circle cx="70" cy="140" r="34" fill="none" stroke="#e2e8f0" stroke-opacity=".7" stroke-width="3"/>
+    <circle cx="80" cy="132" r="12" fill="#22d3ee"/>
+    <rect x="250" y="100" width="12" height="72" rx="6" fill="none" stroke="#e2e8f0" stroke-opacity=".7" stroke-width="3"/>
+    <rect x="248" y="118" width="16" height="16" rx="4" fill="#22d3ee"/>
+    <circle cx="200" cy="56" r="5" fill="#ef4444"/>
+    <text x="210" y="61" fill="#e2e8f0" font-size="13">LIVE</text>
+  </g>
+
+  <text x="1100" y="300" fill="#f8fafc" font-size="64" font-weight="700" text-anchor="middle">UVC PTZ</text>
+  <text x="1100" y="370" fill="#f8fafc" font-size="64" font-weight="700" text-anchor="middle">Stream</text>
+  <text x="640" y="605" fill="#94a3b8" font-size="28" text-anchor="middle">Any Android + USB camera → web PTZ control · HEVC / H.264 hardware</text>
+</svg>

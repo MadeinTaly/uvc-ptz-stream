@@ -1,5 +1,7 @@
 # UVC PTZ Stream
 
+![UVC PTZ Stream](docs/banner.svg)
+
 Turn any Android device with a USB host port (phone, tablet, TV box) into a web-controlled
 PTZ camera server. Plug in a USB (UVC) PTZ camera, open `http://<device-ip>:8080` from any
 browser on the network, and you get live video plus pan / tilt / zoom control.
