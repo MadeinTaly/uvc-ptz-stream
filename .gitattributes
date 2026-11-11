@@ -1,0 +1,16 @@
+# Fine-riga coerenti tra Windows e Linux (indipendente da core.autocrlf locale).
+* text=auto
+
+# Script bash e wrapper Gradle: SEMPRE LF (CRLF rompe bash, anche su git-bash)
+*.sh     text eol=lf
+gradlew  text eol=lf
+
+# Batch Windows: CRLF al checkout
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Binari
+*.jar    binary
+*.png    binary
+*.jpg    binary
+*.webp   binary

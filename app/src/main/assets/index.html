@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>UVC PTZ Cam</title>
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#07060f; --bg2:#0e0b1f; --bg3:#17123a; --bg3a:#17123acc; --bg2a:#0e0b1fcc;
+    --line:#2f2763; --line2:#4a3d9a; --fg:#f4f1ff; --fg2:#c9c2f0; --mut:#8b84b3;
+    --accent:#ff2e88; --accent2:#ff7ab8; --accent-sh:#8a0f45; --on-accent:#07060f;
+    --stop:#ff3b3b; --stop-sh:#7a1010; --del:#ff8a8a;
+    --frost:rgba(14,11,31,.82); --scrim:#000a; --scrim2:#0008; --hi:#fff4;
+    --sig:#2de2e6; --sig-glow:#2de2e655; --live:#ffd319; --live-sh:#7a6200;
+    --black:#000; --off:#2a2540; --off-line:#3a3452;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+    --pixel:"Press Start 2P","VT323","Silkscreen",var(--mono);
+    --body:var(--mono);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; }
+  body{
+    font-family:var(--body); background:var(--bg); color:var(--fg);
+    overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none;
+  }
+  :focus-visible{ outline:2px solid var(--live); outline-offset:2px; }
+  #app{ display:flex; flex-direction:column; height:100dvh; }
+
+  header{
+    display:flex; align-items:center; gap:8px; padding:9px 12px;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 2px, var(--bg2) 2px 3px),
+      var(--bg3);
+    border-bottom:2px solid var(--accent); flex:0 0 auto;
+  }
+  header h1{ margin:0; font-family:var(--pixel); font-size:13px; font-weight:400; color:var(--live);
+             text-shadow:2px 2px 0 var(--accent-sh); }
+  header .sp{ flex:1; }
+  .iconbtn{
+    min-width:40px; height:40px; padding:0 8px; border:2px solid var(--line2); border-radius:4px;
+    background:var(--bg2); color:var(--fg); font-size:16px; display:grid; place-items:center; cursor:pointer;
+    box-shadow:0 3px 0 var(--line); transition:transform .06s, box-shadow .06s;
+  }
+  .iconbtn:hover{ border-color:var(--sig); }
+  .iconbtn:active{ transform:translateY(3px); box-shadow:0 0 0 var(--line); }
+  .iconbtn.on{ background:var(--accent); border-color:var(--accent2); color:var(--on-accent); box-shadow:0 3px 0 var(--accent-sh); }
+  .btn.on{ background:var(--accent); border-color:var(--accent2); color:var(--on-accent); box-shadow:0 3px 0 var(--accent-sh); }
+
+  #stage{ position:relative; flex:1 1 auto; background:var(--black); min-height:0; }
+  #video{ width:100%; height:100%; object-fit:contain; display:block; background:var(--black); }
+  #vcanvas{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:var(--black); z-index:1; }
+  #stat{ position:absolute; top:8px; left:8px; font-family:var(--mono); font-size:11px; color:var(--sig);
+         background:var(--scrim); padding:3px 8px; border-radius:2px; border-left:2px solid var(--sig);
+         pointer-events:none; z-index:2; }
+  #novid{ position:absolute; inset:0; display:grid; place-items:center; padding:0 16px; text-align:center;
+          font-family:var(--pixel); color:var(--live); font-size:11px; line-height:1.8;
+          pointer-events:none; animation:blink 1.2s steps(2,start) infinite; }
+  @keyframes blink{ to{ opacity:.25; } }
+  #toast{ position:absolute; left:50%; bottom:12px; transform:translateX(-50%);
+          background:var(--scrim); color:var(--fg); padding:8px 14px; border-radius:2px; font-size:13px;
+          border:2px solid var(--sig); opacity:0; transition:opacity .2s; pointer-events:none; z-index:3; }
+  #toast.show{ opacity:1; }
+
+  #panel{ flex:0 0 auto; background:var(--bg); border-top:2px solid var(--line2);
+          padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  #drive{ display:flex; flex-direction:column; align-items:stretch; gap:14px; }
+  #settings{ display:none; }
+  #presets{ display:none; }
+  body.setmode #drive{ display:none; }
+  body.setmode #settings{ display:block; }
+  body.premode #drive, body.premode #settings{ display:none; }
+  body.setmode #stage{ flex:0 0 26dvh; }
+  body.setmode #panel{ flex:1 1 auto; min-height:0; overflow-y:auto;
+                       -webkit-overflow-scrolling:touch; touch-action:pan-y; }
+  body.setmode #imgctrls{ max-height:none; overflow:visible; }
+  body.premode #presets{ display:block; }
+  #telemetry{ display:none; }
+  .driverow{ display:flex; align-items:center; justify-content:center; gap:18px; }
+  #drow{ display:flex; flex-direction:column; gap:11px; }
+  #drow .midcol{ flex-direction:row; justify-content:center; }
+  .stick{ align-self:center; }
+
+  /* Joystick: base cabinato + pomello a sfera */
+  .stick{ position:relative; width:150px; height:150px; border-radius:50%;
+    background:radial-gradient(circle at 50% 50%,var(--bg3),var(--bg2) 70%);
+    border:3px solid var(--sig); box-shadow:0 0 0 3px var(--bg), 0 0 16px var(--sig-glow);
+    touch-action:none; flex:0 0 auto; }
+  .stick::before{ content:""; position:absolute; inset:18px; border-radius:50%; border:2px dotted var(--line2); }
+  .knob{ position:absolute; left:50%; top:50%; width:60px; height:60px; margin:-30px 0 0 -30px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,var(--accent2),var(--accent) 55%,var(--accent-sh));
+    box-shadow:0 5px 0 var(--accent-sh), 0 8px 14px var(--scrim2), inset 0 3px 4px var(--hi); transition:transform .04s linear; }
+  .stick .lbl{ position:absolute; left:50%; transform:translateX(-50%); font-family:var(--pixel); font-size:7px; color:var(--sig); }
+  .stick .lbl.t{ top:6px } .stick .lbl.b{ bottom:6px }
+  .stick .lblx{ position:absolute; top:50%; transform:translateY(-50%); font-size:10px; color:var(--sig); }
+  .stick .lblx.l{ left:6px } .stick .lblx.r{ right:6px }
+
+  /* Leva zoom */
+  .zoombox{ display:flex; flex-direction:column; align-items:center; gap:6px; flex:0 0 auto; }
+  .lever{ position:relative; width:64px; height:150px; border-radius:6px;
+    background:repeating-linear-gradient(0deg,var(--bg2) 0 6px,var(--bg3) 6px 8px);
+    border:3px solid var(--live); box-shadow:0 0 0 3px var(--bg); touch-action:none; }
+  .lever .tick{ position:absolute; left:50%; transform:translateX(-50%); font-family:var(--pixel); font-size:12px; color:var(--live); }
+  .lever .tick.up{ top:8px } .lever .tick.dn{ bottom:8px }
+  .lever .center{ position:absolute; left:6px; right:6px; top:50%; height:2px; background:var(--live-sh); }
+  .lhandle{ position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px; border-radius:4px;
+    background:linear-gradient(var(--live),var(--live) 60%,var(--live-sh));
+    box-shadow:0 4px 0 var(--live-sh), 0 8px 14px var(--scrim2), inset 0 2px 0 var(--hi); transition:transform .04s linear;
+    display:grid; place-items:center; font-family:var(--pixel); font-size:12px; color:var(--bg); }
+  .zlabel{ font-family:var(--pixel); font-size:8px; color:var(--live); }
+
+  .midcol{ display:flex; flex-direction:column; gap:8px; flex:0 0 auto; }
+  .mbtn{ min-width:84px; padding:10px 8px; border:2px solid var(--sig); border-radius:4px;
+    background:var(--bg2); color:var(--sig); font-family:var(--body); font-size:13px; font-weight:700; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+    box-shadow:0 3px 0 var(--line); transition:transform .06s, box-shadow .06s; }
+  .mbtn:active{ transform:translateY(3px); box-shadow:0 0 0 var(--line); }
+
+  #settings h2, #presets h2{ font-family:var(--pixel); font-weight:400; font-size:10px; line-height:1.6;
+    color:var(--live); margin:14px 0 10px; padding-bottom:6px; border-bottom:2px dashed var(--line); }
+  #settings section:first-child h2{ margin-top:4px; }
+
+  .plist{ display:flex; flex-direction:column; gap:8px; margin-top:10px; color:var(--mut); }
+  .pitem{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:4px;
+          background:var(--bg2); border:2px solid var(--line); }
+  .pitem .pgo{ flex:1 1 auto; min-width:0; text-align:left; background:none; border:0; color:var(--fg);
+          font-family:var(--body); font-weight:700; font-size:15px; cursor:pointer; padding:4px 0; }
+  .pitem .pgo:hover{ color:var(--sig); }
+  .pitem .pgo small{ color:var(--mut); font-weight:500; margin-left:8px; font-size:11px; }
+  .pitem .pbtn{ flex:0 0 auto; width:36px; height:36px; border-radius:4px; border:2px solid var(--line2);
+          background:var(--bg3); color:var(--fg2); font-size:16px; cursor:pointer; }
+  .pitem .pbtn.del{ color:var(--del); }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  select,.btn{ padding:9px 12px; border-radius:4px; border:2px solid var(--line2); background:var(--bg2);
+    color:var(--fg); font-family:var(--body); font-size:14px; }
+  .btn{ font-weight:700; cursor:pointer; box-shadow:0 3px 0 var(--line); transition:transform .06s, box-shadow .06s; }
+  .btn:hover{ border-color:var(--sig); }
+  .btn:active{ transform:translateY(3px); box-shadow:0 0 0 var(--line); }
+  .btn.p{ background:var(--accent); border-color:var(--accent2); color:var(--on-accent); box-shadow:0 3px 0 var(--accent-sh); }
+  .btn.stop{ background:var(--stop); border-color:var(--stop); color:var(--on-accent); box-shadow:0 3px 0 var(--stop-sh); }
+  #imgctrls{ max-height:34dvh; overflow:auto; }
+  .sg{ display:grid; grid-template-columns:120px 1fr 40px; gap:10px; align-items:center; margin:7px 0; }
+  .sg label{ font-size:13px; color:var(--fg2); }
+  .sg input[type=range]{ width:100%; accent-color:var(--accent); }
+  .sg .v{ font-size:12px; color:var(--sig); text-align:right; font-variant-numeric:tabular-nums; }
+  .tog{ display:inline-flex; gap:6px; }
+  .pill{ font-size:11px; line-height:1.5; color:var(--mut); }
+
+  @media (orientation:landscape){
+    header{ display:none; }
+    #stage{ position:fixed; inset:0; }
+    #video{ object-fit:cover; }
+    #panel{ position:fixed; inset:auto 0 0 0; background:transparent; border:0; padding:0; pointer-events:none; }
+    #panel *{ pointer-events:auto; }
+
+    #drive{ background:transparent; }
+    .stick{ position:fixed; left:16px; bottom:16px; width:128px; height:128px;
+            background:radial-gradient(circle at 50% 50%,var(--bg3a),var(--bg2a) 70%); }
+    .knob{ width:52px; height:52px; margin:-26px 0 0 -26px; }
+    .zoombox{ position:fixed; left:156px; bottom:16px; }
+    .lever{ width:48px; height:118px; background:var(--bg2a); }
+    .lhandle{ width:42px; height:42px; margin:-21px 0 0 -21px; }
+    .zlabel{ display:none; }
+    #drow{ position:fixed; right:12px; bottom:14px; display:flex !important; flex-direction:column;
+           gap:8px; width:210px; }
+    .midcol{ position:fixed; left:50%; transform:translateX(-50%); bottom:16px; flex-direction:row; }
+    .mbtn{ min-width:0; width:52px; padding:9px 4px; background:var(--bg2a); }
+
+    #settings, #presets{ position:fixed; left:0; right:0; bottom:0; max-height:60dvh; overflow:auto;
+               background:var(--frost); backdrop-filter:blur(6px);
+               border-top:2px solid var(--accent); border-radius:0; padding:12px 16px; }
+    #settings{ max-height:48dvh; }
+    #imgctrls{ max-height:26dvh; }
+    #fab{ display:flex; }
+  }
+
+  #fab{ display:none; position:fixed; right:16px; top:14px; z-index:30; }
+
+  #lights{ display:flex; flex-wrap:wrap; gap:8px; }
+  #lights .light-btn{ flex:1 1 auto; min-width:140px; }
+  #lights .light-btn:disabled{ opacity:0.5; cursor:not-allowed; }
+  #lights .light-btn.unavail{ background:var(--off); border-color:var(--off-line); }
+
+  @media (min-width:1000px){
+    body{ overflow:hidden; }
+    header{ display:flex; grid-column:1 / -1; padding:10px 16px; }
+    header h1{ font-size:14px; }
+    #app{ display:grid; grid-template-columns:1fr clamp(360px,27vw,440px);
+          grid-template-rows:auto 1fr; height:100dvh; }
+
+    #stage{ position:relative; inset:auto; grid-column:1; grid-row:2; }
+    #video{ object-fit:contain; }
+    #stat{ font-size:12px; top:12px; left:12px; }
+
+    #panel{ position:relative; inset:auto; grid-column:2; grid-row:2;
+            background:var(--bg2); border:0; border-left:2px solid var(--line2);
+            padding:0; overflow-y:auto; pointer-events:auto;
+            display:flex; flex-direction:column; }
+    #panel > *{ pointer-events:auto; }
+
+    #telemetry{ display:grid; grid-template-columns:repeat(3,1fr); gap:2px;
+                background:var(--line); border-bottom:2px solid var(--line2); flex:0 0 auto; }
+    #telemetry .ax{ background:var(--bg); padding:14px 12px; }
+    #telemetry .ax .k{ display:block; font-family:var(--body); font-size:12px; line-height:1; color:var(--mut); }
+    #telemetry .ax .val{ display:block; margin-top:9px; font-family:var(--pixel);
+                         font-size:17px; line-height:1; color:var(--sig); font-variant-numeric:tabular-nums;
+                         text-shadow:0 0 8px var(--sig-glow); }
+    #telemetry .ax .val small{ font-size:10px; color:var(--mut); margin-left:1px; text-shadow:none; }
+
+    #drive{ display:flex; flex-direction:column; align-items:center; gap:20px;
+            background:transparent; padding:22px 18px; border-bottom:2px solid var(--line); }
+    #drow{ position:static !important; display:flex; flex-direction:column; gap:12px;
+           width:100%; align-items:stretch; }
+    .stick{ position:relative !important; left:auto; right:auto; top:auto; bottom:auto;
+            width:190px; height:190px; }
+    .knob{ width:66px; height:66px; margin:-33px 0 0 -33px; }
+    #drive .midcol{ position:relative !important; left:auto; transform:none; bottom:auto;
+                    flex-direction:row; justify-content:center; }
+    #drive .mbtn{ min-width:84px; }
+    #drive .driverow{ display:flex; flex-direction:row; align-items:center; justify-content:center; gap:20px; }
+    #drive .zoombox{ position:static !important; left:auto; right:auto; bottom:auto; }
+    #drive .lever{ width:56px; height:150px; background:repeating-linear-gradient(0deg,var(--bg2) 0 6px,var(--bg3) 6px 8px); }
+    #drive .lhandle{ width:48px; height:48px; margin:-24px 0 0 -24px; }
+    #drive .zlabel{ display:block; }
+
+    #settings, #presets{ position:static; max-height:none;
+               background:transparent; backdrop-filter:none; border:0; border-radius:0; padding:18px; }
+    body.setmode #drive, body.premode #drive{ display:none; }
+    #imgctrls{ max-height:none; }
+    #fab{ display:none !important; }
+
+    #settings h2{ margin:14px 0 10px; }
+    #settings .row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+                    gap:8px; margin-bottom:8px; }
+    #settings .row .btn, #settings .row select{ min-width:120px; padding:8px 10px; font-size:13px; }
+    #settings .row .pill{ grid-column:1 / -1; font-size:12px; }
+    #settings .row label{ display:flex; align-items:center; gap:6px; font-size:12px; }
+    #settings .row label input[type=number]{ width:70px; padding:5px 6px; font-size:12px; }
+    #settings .row input[type=number]{ padding:6px 8px; }
+    #imgctrls{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px 8px; }
+    #imgctrls .sg{ grid-column:auto; display:grid; grid-template-columns:1fr 1fr; gap:6px;
+                   align-items:center; margin:0; }
+    #imgctrls .sg label{ font-size:12px; grid-column:1 / -1; }
+    #imgctrls .sg input[type=range]{ grid-column:1 / -1; }
+    #imgctrls .sg .v{ font-size:11px; }
+    #imgctrls .sg .tog{ grid-column:1 / -1; display:flex; gap:4px; }
+    #imgctrls .sg .tog button{ flex:1; font-size:11px; padding:6px 4px; }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    #novid{ animation:none; }
+    #s-rec.recording{ animation:none !important; }
+    .btn,.mbtn,.iconbtn{ transition:none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>UVC PTZ</h1>
+    <span class="sp"></span>
+    <div class="iconbtn mode" id="b-pre" title="Posizioni salvate">★</div>
+    <div class="iconbtn mode" id="b-mode" title="Pilotaggio / Settaggi" aria-label="Pilotaggio / Settaggi"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><path d="M14 4v4M8 10v4M16 16v4"/></svg></div>
+    <div class="iconbtn" id="b-fs" title="Schermo intero">⛶</div>
+    <div class="iconbtn" id="b-power" title="Avvia/Ferma stream"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg></div>
+  </header>
+
+  <div id="stage">
+    <img id="video" alt="">
+    <canvas aria-hidden="true" id="vcanvas" style="display:none"></canvas>
+    <div id="novid">stream fermo — premi il tasto accensione</div>
+    <div id="stat">—</div>
+    <div id="toast"></div>
+  </div>
+
+  <div id="panel">
+    <!-- HUD telemetria assi (visibile solo nel dock desktop) -->
+    <div id="telemetry">
+      <div class="ax"><span class="k">Pan</span><span class="val" id="t-pan">0<small>°</small></span></div>
+      <div class="ax"><span class="k">Tilt</span><span class="val" id="t-tilt">0<small>°</small></span></div>
+      <div class="ax"><span class="k">Zoom</span><span class="val" id="t-zoom">0<small>%</small></span></div>
+    </div>
+    <!-- PAGINA PILOTAGGIO -->
+    <div id="drive">
+      <div class="driverow">
+        <div class="stick" id="stick">
+          <span class="lbl t">TILT +</span><span class="lbl b">TILT −</span>
+          <span class="lblx l">◄</span><span class="lblx r">►</span>
+          <div class="knob" id="knob"></div>
+        </div>
+        <div class="zoombox">
+          <div class="lever" id="lever">
+            <span class="tick up">+</span><span class="tick dn">−</span>
+            <span class="center"></span>
+            <div class="lhandle" id="lhandle">Z</div>
+          </div>
+          <span class="zlabel" id="zlabel">zoom 0%</span>
+        </div>
+      </div>
+      <div id="drow">
+      <div class="midcol">
+        <button class="mbtn" id="b-home" title="Centro">⌂ Home</button>
+      </div>
+      </div><!-- /drow -->
+    </div>
+
+    <!-- PAGINA SETTAGGI -->
+    <div id="settings">
+      <section id="sec-stream">
+        <h2>Stream</h2>
+        <div class="row">
+          <button class="btn p" id="b-start">▶ Avvia</button>
+          <button class="btn stop" id="b-stop">■ Ferma</button>
+          <select id="res"></select>
+          <span class="pill" id="stat2">—</span>
+        </div>
+      </section>
+      <section id="sec-camera">
+        <h2>Camera</h2>
+        <div class="row">
+          <button class="btn" id="s-reset">↺ Reset camera</button>
+          <button class="btn" id="s-snap">Salva foto</button>
+          <button class="btn" id="s-hires">Scatto HD</button>
+          <button class="btn" id="s-rec">⏺ REC</button>
+          <span class="pill">Fuoco automatico, gestito dalla camera. Reset camera = recovery USB (~4s). Scatto HD = snapshot full-res 1920x1080. REC = registra clip video lato client (WebM).</span>
+        </div>
+      </section>
+      <section id="sec-lights">
+        <h2>Luci</h2>
+        <div class="row" id="lights">caricamento…</div>
+      </section>
+      <section id="sec-system">
+        <h2>Sistema</h2>
+        <div class="row">
+          <button class="btn" id="s-apprestart">⟳ Riavvia app</button>
+          <button class="btn stop" id="s-reboot">⏻ Riavvia Android</button>
+          <span class="pill">Riavvia app = restart APK (~3s). Riavvia Android = reboot box (~40s).</span>
+        </div>
+      </section>
+      <section id="sec-image">
+        <h2>Regolazioni immagine (anteprima live sopra)</h2>
+        <div id="imgctrls">caricamento…</div>
+        <h2>Luminosità software (post-processing)</h2>
+        <div>
+          <div class="sg"><label>luminosità</label>
+            <input type="range" id="l-gain" min="10" max="300" value="100"
+                   oninput="document.getElementById('l-gainv').textContent=this.value+'%'"
+                   onchange="setLuma()">
+            <span class="v" id="l-gainv">100%</span></div>
+          <div class="sg"><label>gamma</label>
+            <input type="range" id="l-gamma" min="30" max="300" value="100"
+                   oninput="document.getElementById('l-gammav').textContent=(this.value/100).toFixed(2)"
+                   onchange="setLuma()">
+            <span class="v" id="l-gammav">1.00</span></div>
+          <div class="row"><button class="btn" id="l-ae">☀ Auto OFF</button><button class="btn" id="l-reset">↺ Neutro</button>
+            <span class="pill">Scurisce/schiarisce il canale Y in pipeline (il firmware ignora l'esposizione USB). Agisce su stream, snapshot e REC. Persiste al riavvio. Con <b>Auto</b> il gain si regola da solo sulla luce della scena e lo slider luminosità diventa il livello desiderato.</span></div>
+        </div>
+      </section>
+      <section id="sec-access">
+        <h2>Accessi — chi è collegato ora</h2>
+        <div class="row"><span class="pill" id="acc-me">—</span></div>
+        <div id="acclist" class="plist">caricamento…</div>
+        <span class="pill" id="acc-hint" style="display:none">Sei l'amministratore: per ogni utente remoto puoi attivare/disattivare le singole capacità o bloccarlo del tutto. L'accesso dalla rete locale (LAN) e l'admin sono sempre pieni e non modificabili.</span>
+      </section>
+    </div>
+
+    <!-- PAGINA POSIZIONI (preset / multi-home) -->
+    <div id="presets">
+      <h2>Posizioni salvate</h2>
+      <div class="row">
+        <button class="btn p" id="p-save">＋ Salva posizione attuale</button>
+        <button class="btn" id="p-tour">▶ Tour</button>
+        <select id="p-dwell"><option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">60s</option></select>
+        <span class="pill">Memorizza pan/tilt/zoom correnti. Tap su una voce = la camera ci va. Tour = cicla le posizioni con la sosta scelta; si ferma al primo comando manuale.</span>
+      </div>
+      <div id="plist" class="plist">nessuna posizione</div>
+    </div>
+  </div>
+</div>
+
+<div class="iconbtn" id="fab" title="Pilotaggio / Settaggi" aria-label="Pilotaggio / Settaggi"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><path d="M14 4v4M8 10v4M16 16v4"/></svg></div>
+
+<script>
+"use strict";
+
+const L = { panMin:-612000, panMax:612000, tiltMin:-108000, tiltMax:324000, zoomMin:0, zoomMax:16384 };
+const st = { pan:0, tilt:0, zoom:0 };
+const input = { jx:0, jy:0, z:0, f:0 };
+let streaming = false;
+
+// velocita' reali del motore misurate via GET_CUR: pan/tilt ~21 gradi/s (76000 arcsec/s), zoom ~3400/s.
+// Il target non deve correre piu' del motore: niente inseguimento ne' coda al rilascio.
+const PAN_SPEED = 68000, TILT_SPEED = 68000, ZOOM_SPEED = 3000;
+const expo = v => Math.abs(v) < 0.06 ? 0 : v*Math.abs(v);   // deadzone + curva: fine al centro, piena a fondo corsa
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+const $ = id => document.getElementById(id);
+
+function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('show'); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove('show'),2200); }
+
+// ---------------- WebSocket ----------------
+let ws=null, wsReady=false, lastSent=0;
+function wsConnect(){
+  if(ws) try{ ws.close(); }catch(e){}
+  try{ const proto=location.protocol==='https:'?'wss':'ws'; ws=new WebSocket(`${proto}://${location.host}/ws`); }
+  catch(e){ setTimeout(wsConnect,1500); return; }
+  // keepalive: ping ogni 30s. Cloudflare chiude i WS idle ~100s -> col joystick fermo il /ws
+  // moriva e i comandi PTZ non passavano piu' (video restava vivo perche' ha traffico continuo).
+  ws.onopen = ()=>{ wsReady=true; clearInterval(ws._ping);
+    ws._ping=setInterval(()=>{ try{ ws.send('{"t":"ping"}'); }catch(e){} }, 30000); };
+  ws.onclose = ()=>{ wsReady=false; clearInterval(ws._ping); setTimeout(wsConnect,1200); };
+  ws.onerror = ()=>{ try{ws.close()}catch(e){} };
+  ws.onmessage = (ev)=>{
+    let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+    if(m.limits){ Object.assign(L,m.limits); }
+    if(m.pan!==undefined){ st.pan=m.pan; st.tilt=m.tilt; st.zoom=m.zoom; reflectZoom(); }
+    if(m.afReset!==undefined){ toast(m.ok ? 'Camera resettata' : 'Reset fallito'); if(m.ok) setTimeout(restartVideo,1500); }
+    if(m.presets!==undefined){ renderPresets(m.presets); }
+    if(m.perms!==undefined){ applyPerms(m.perms); }                 // permessi via WS all'apertura
+    if(m.denied!==undefined){ toast('Permesso negato: '+capLabel(m.denied)); }
+  };
+}
+function wsSend(o){ if(wsReady){ try{ ws.send(JSON.stringify(o)); }catch(e){} } }
+
+// ---------------- Loop joystick -> posizione assoluta ----------------
+let lastT=performance.now(), absPending=false;
+function loop(now){
+  const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+  const zf=1-0.85*(st.zoom-L.zoomMin)/(L.zoomMax-L.zoomMin||1); // piu' zoom = movimento piu' piccolo
+  let changed=false;
+  const ex=expo(input.jx), ey=expo(input.jy);
+  if(ex||ey){
+    const np=clamp(st.pan + ex*PAN_SPEED*zf*dt, L.panMin, L.panMax);
+    const nt=clamp(st.tilt - ey*TILT_SPEED*zf*dt, L.tiltMin, L.tiltMax);
+    if(np!==st.pan||nt!==st.tilt){ st.pan=np; st.tilt=nt; changed=true; }
+  }
+  if(input.z){   // leva zoom -> zoom assoluto (HW veloce)
+    const nz=clamp(st.zoom + input.z*ZOOM_SPEED*dt, L.zoomMin, L.zoomMax);
+    if(nz!==st.zoom){ st.zoom=nz; changed=true; reflectZoom(); }
+  }
+  if(changed){ absPending=true; updateTelemetry(); }
+  // invio ogni 90ms; a comandi fermi parte SUBITO l'ultima posizione (rilascio = stop netto)
+  if(absPending && (now-lastSent>90 || !(changed))){
+    wsSend({t:"abs",pan:Math.round(st.pan),tilt:Math.round(st.tilt),zoom:Math.round(st.zoom)});
+    lastSent=now; absPending=false;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+function reflectZoom(){ const fr=(st.zoom-L.zoomMin)/(L.zoomMax-L.zoomMin||1);
+  const z=$('zlabel'); if(z) z.textContent='zoom '+Math.round(fr*100)+'%'; updateTelemetry(); }
+// HUD telemetria desktop: assi in gradi / zoom in %
+function updateTelemetry(){
+  const p=$('t-pan'); if(!p) return;
+  p.innerHTML=(st.pan/3600).toFixed(1)+'<small>°</small>';
+  $('t-tilt').innerHTML=(st.tilt/3600).toFixed(1)+'<small>°</small>';
+  const zp=Math.round(100*(st.zoom-L.zoomMin)/(L.zoomMax-L.zoomMin||1));
+  $('t-zoom').innerHTML=zp+'<small>%</small>';
+}
+
+// ---------------- Joystick ----------------
+(function(){
+  const stick=$('stick'), knob=$('knob'); let active=false,id=null,R=0;
+  const rect=()=>stick.getBoundingClientRect();
+  function set(cx,cy){ const r=rect(),ox=r.left+r.width/2,oy=r.top+r.height/2; R=r.width/2-30;
+    let dx=cx-ox,dy=cy-oy; const d=Math.hypot(dx,dy); if(d>R){dx*=R/d;dy*=R/d;}
+    knob.style.transform=`translate(${dx}px,${dy}px)`; input.jx=dx/R; input.jy=dy/R; }
+  const reset=()=>{ knob.style.transform='translate(0,0)'; input.jx=0; input.jy=0; };
+  stick.addEventListener('pointerdown',e=>{active=true;id=e.pointerId;stick.setPointerCapture(id);set(e.clientX,e.clientY);e.preventDefault();});
+  stick.addEventListener('pointermove',e=>{ if(active&&e.pointerId===id) set(e.clientX,e.clientY); });
+  const up=e=>{ if(e.pointerId===id){active=false;id=null;reset();} };
+  stick.addEventListener('pointerup',up); stick.addEventListener('pointercancel',up);
+})();
+
+// ---------------- Leva ZOOM verticale (a fianco dello stick, ritorno al centro) ----------------
+// input.z (-1..1) integrato nel loop -> st.zoom assoluto. Lo zoom HW e' veloce: nessun problema.
+function makeLever(leverId, handleId, key){
+  const lever=$(leverId), h=$(handleId); let active=false,id=null;
+  const rect=()=>lever.getBoundingClientRect();
+  const set=cy=>{ const r=rect(),oy=r.top+r.height/2,R=r.height/2-28; let dy=clamp(cy-oy,-R,R);
+    h.style.transform=`translateY(${dy}px)`; input[key]=-dy/R; };
+  const reset=()=>{ h.style.transform='translateY(0)'; input[key]=0; };
+  lever.addEventListener('pointerdown',e=>{active=true;id=e.pointerId;lever.setPointerCapture(id);set(e.clientY);e.preventDefault();});
+  lever.addEventListener('pointermove',e=>{ if(active&&e.pointerId===id) set(e.clientY); });
+  const up=e=>{ if(e.pointerId===id){active=false;id=null;reset();} };
+  lever.addEventListener('pointerup',up); lever.addEventListener('pointercancel',up);
+}
+makeLever('lever','lhandle','z');
+
+// FUOCO: nessun controllo. La camera ha un autofocus di fabbrica completo e qualunque
+// comando UVC sul fuoco lo disattiva -> il software non lo tocca mai.
+
+// ---------------- Tap-to-center: tocca un punto del video e la testa ci si centra --------
+// Dal punto toccato ricavo le coordinate normalizzate della scena (gestendo il
+// letterbox/crop di object-fit) e le converto in delta pan/tilt col FOV corrente.
+// Il FOV a wide non e' documentato: TAP_HFOV e' una stima da tarare sul box (gradi);
+// lo zoom lo stringe con lo stesso fattore euristico del joystick (zoomFactor).
+// La mappatura e' iterativa per natura: se la stima e' imprecisa, un secondo tap corregge.
+const TAP_HFOV = 55;
+function tapToCenter(e){
+  if(!streaming) return false;
+  const el=e.target;
+  const vw = el.tagName==='CANVAS' ? el.width  : (el.naturalWidth||0);
+  const vh = el.tagName==='CANVAS' ? el.height : (el.naturalHeight||0);
+  if(!vw||!vh) return false;
+  const r=el.getBoundingClientRect();
+  const fit=getComputedStyle(el).objectFit||'contain';
+  const s = fit==='cover' ? Math.max(r.width/vw,r.height/vh) : Math.min(r.width/vw,r.height/vh);
+  const dw=vw*s, dh=vh*s;
+  const nx=(e.clientX-r.left-(r.width -dw)/2)/dw-0.5;
+  const ny=(e.clientY-r.top -(r.height-dh)/2)/dh-0.5;
+  if(Math.abs(nx)>0.5||Math.abs(ny)>0.5) return false;   // tap nel letterbox, fuori dal video
+  stopTour();
+  const zf=1-0.85*st.zoom/(L.zoomMax||16384);
+  st.pan =clamp(st.pan + nx*TAP_HFOV*zf*3600,            L.panMin, L.panMax);
+  st.tilt=clamp(st.tilt - ny*TAP_HFOV*(vh/vw)*zf*3600,   L.tiltMin,L.tiltMax);
+  wsSend({t:"abs",pan:Math.round(st.pan),tilt:Math.round(st.tilt),zoom:Math.round(st.zoom)});
+  updateTelemetry();
+  return true;
+}
+// Doppio tap = center + zoom del 30% del range (il center va calcolato PRIMA del bump,
+// col FOV corrente). Il tap singolo e' ritardato di 280ms per distinguere i due gesti.
+function tapZoomIn(e){
+  if(!tapToCenter(e)) return;
+  st.zoom=clamp(st.zoom+0.30*(L.zoomMax||16384), L.zoomMin, L.zoomMax);
+  wsSend({t:"abs",pan:Math.round(st.pan),tilt:Math.round(st.tilt),zoom:Math.round(st.zoom)});
+  updateTelemetry();
+}
+let tapTimer=null;
+$('stage').addEventListener('click',e=>{
+  if(e.target.id!=='video'&&e.target.id!=='vcanvas') return;
+  if(tapTimer){ clearTimeout(tapTimer); tapTimer=null; tapZoomIn(e); return; }
+  const ev={target:e.target,clientX:e.clientX,clientY:e.clientY};   // l'evento muore col timer
+  tapTimer=setTimeout(()=>{ tapTimer=null; tapToCenter(ev); },280);
+});
+
+// ---------------- Home / Reset ----------------
+// (Nessun controllo di fuoco: autofocus di fabbrica, gestito interamente dalla camera.)
+$('b-home').onclick=()=>wsSend({t:"home"});
+function doReset(){ toast('Reset camera…'); wsSend({t:"afReset"}); }
+$('s-reset').onclick=doReset;
+// Salva foto su storage app
+$('s-snap').onclick=()=>{ fetch('/api/snapshot/save').then(r=>r.json()).then(d=>{
+  toast(d.saved?('Salvata: '+d.path.split('/').pop()):('Errore: '+(d.error||'?'))); }).catch(()=>toast('Errore salvataggio')); };
+
+// Scatto HD 1920x1080 on-demand
+$('s-hires').onclick=()=>{
+  toast('Scatto HD in corso…');
+  const btn=$('s-hires'); btn.disabled=true;
+  fetch('/api/snapshot/hires').then(async r=>{
+    if(!r.ok) { toast('Errore scatto HD'); return; }
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url;
+    a.download='hires-'+Date.now()+'.jpg';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('Scatto HD salvato');
+  }).catch(e=>{ toast('Errore: '+e.message); }).finally(()=>{ btn.disabled=false; });
+};
+
+// ---------------- Sistema: riavvio app / Android ----------------
+$('s-apprestart').onclick=()=>{ if(!confirm('Riavviare l\'app?')) return;
+  toast('Riavvio app… (~3s)'); fetch('/api/app/restart').catch(()=>{});
+  setTimeout(()=>location.reload(), 4000); };
+$('s-reboot').onclick=()=>{ if(!confirm('Riavviare il box Android? (~40s)')) return;
+  toast('Riavvio Android… attendi ~40s'); fetch('/api/system/reboot').catch(()=>{}); };
+
+// ---------------- Stream ----------------
+function restartVideo(){ if(streaming && !hwVideoOn){ const img=$('video'); img.src='/stream/mjpeg?'+Date.now(); } }
+
+// ---------------- Video HW (HEVC/H264) via WebCodecs su canvas, fallback MJPEG ----------------
+let vws=null, vdec=null, hwVideoOn=false, hwGotKey=false, hwTs=0, hwRetry=null;
+function hwFallback(){
+  hwVideoOn=false; hwGotKey=false;
+  try{ vdec&&vdec.state!=='closed'&&vdec.close(); }catch(e){} vdec=null;
+  try{ vws&&vws.close(); }catch(e){} vws=null;
+  $('vcanvas').style.display='none'; const img=$('video'); img.style.display='block';
+  if(streaming) img.src='/stream/mjpeg?'+Date.now();   // torna a MJPEG
+}
+function hwDraw(frame){
+  const cv=$('vcanvas'); if(cv.width!==frame.displayWidth){ cv.width=frame.displayWidth; cv.height=frame.displayHeight; }
+  cv.getContext('2d').drawImage(frame,0,0); frame.close();
+  if(!hwVideoOn){ hwVideoOn=true; $('novid').style.display='none';
+    cv.style.display='block'; const img=$('video'); img.src=''; img.style.display='none'; }
+}
+async function initHwVideo(){
+  if(!('VideoDecoder' in window)){ return; }              // niente WebCodecs -> resta MJPEG
+  if(vws) try{ vws.close(); }catch(e){}
+  try{
+    const proto=location.protocol==='https:'?'wss':'ws';
+    vws=new WebSocket(`${proto}://${location.host}/video`); vws.binaryType='arraybuffer';
+    vws.onmessage=async ev=>{
+      if(typeof ev.data==='string'){                       // setup {video,mime}
+        const m=JSON.parse(ev.data); const codec=(m.mime==='video/hevc')?'hev1.1.6.L93.B0':'avc1.640028';
+        try{ const sup=await VideoDecoder.isConfigSupported({codec,optimizeForLatency:true});
+          if(!sup.supported){ toast('Codec non supportato dal browser → MJPEG'); hwFallback(); return; }
+        }catch(e){ hwFallback(); return; }
+        vdec=new VideoDecoder({output:hwDraw, error:e=>{ console.warn('vdec',e); hwFallback(); }});
+        try{ vdec.configure({codec,optimizeForLatency:true}); }catch(e){ hwFallback(); return; }
+        hwGotKey=false; hwTs=0; return;
+      }
+      if(!vdec||vdec.state!=='configured') return;
+      const u=new Uint8Array(ev.data), key=u[0]===1, data=u.subarray(1);
+      if(!hwGotKey){ if(!key) return; hwGotKey=true; }      // parti da un keyframe
+      try{ vdec.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:hwTs++,data})); }
+      catch(e){ hwFallback(); }
+    };
+    vws.onerror=()=>{};
+    vws.onclose=()=>{ hwFallback();
+      // se lo stream e' ancora attivo (es. drop tunnel/WS idle), ritenta HW dopo 2s
+      if(streaming){ clearTimeout(hwRetry); hwRetry=setTimeout(()=>{ if(streaming&&!hwVideoOn) initHwVideo(); }, 2000); } };
+  }catch(e){ hwFallback(); }
+}
+function startStream(){
+  const v=($('res').value||'640,480,30').split(',');
+  // /stream/start sceglie la risoluzione: richiede il permesso "stream". Il solo-visione ne e'
+  // privo ma vede comunque, perche' /video e /stream/mjpeg riattivano lo stream all'ultima risoluzione.
+  if(!window.PERMS || (window.PERMS.caps&&window.PERMS.caps.stream))
+    fetch(`/stream/start?w=${v[0]}&h=${v[1]}&fps=${v[2]||30}`).catch(()=>{});
+  const img=$('video'); img.onload=()=>{ $('novid').style.display='none'; };
+  img.src='/stream/mjpeg?'+Date.now();
+  streaming=true; $('b-power').classList.add('on');
+  if(!statsTimer) statsTimer=setInterval(loadStats,1000);
+  setTimeout(initHwVideo, 700);   // prova HEVC HW; se va, sostituisce MJPEG col canvas
+}
+function stopStream(){
+  streaming=false; clearTimeout(hwRetry); hwRetry=null;
+  hwFallback(); $('vcanvas').style.display='none'; $('video').style.display='block';
+  $('video').src=''; fetch('/stream/stop').catch(()=>{});
+  streaming=false; $('b-power').classList.remove('on'); $('novid').style.display='grid';
+  $('stat').textContent='—'; clearInterval(statsTimer); statsTimer=null;
+}
+$('b-power').onclick=()=> streaming?stopStream():startStream();
+$('b-start').onclick=startStream; $('b-stop').onclick=stopStream;
+
+let statsTimer=null,lastFrames=0,lastTs=0;
+async function loadStats(){
+  try{ const s=await fetch('/api/stream/stats').then(r=>r.json());
+    const now=Date.now(),df=s.frames-lastFrames,dt=(now-lastTs)/1000;
+    const fps=dt>0?df/dt:0; lastFrames=s.frames; lastTs=now;
+    const txt=`${s.width}×${s.height} · ${fps.toFixed(0)} fps`;
+    $('stat').textContent=txt; $('stat2').textContent=`${txt} · ${s.frames} frame`;
+  }catch(e){}
+}
+// Risoluzione idonea allo schermo: lato lungo del display in px reali, cap a 1280
+// perche' l'encode YUYV->JPEG e' software sulla CPU del box (a 1080 va a scatti).
+function pickRes(formats){
+  const dpr=window.devicePixelRatio||1;
+  const target=Math.min(1280, Math.round(Math.max(screen.width,screen.height)*dpr));
+  const sorted=[...formats].sort((a,b)=>b.w-a.w);
+  return sorted.find(f=>f.w<=target) || sorted[sorted.length-1];
+}
+async function loadRes(){
+  try{ const d=await fetch('/api/stream/formats').then(r=>r.json());
+    const sel=$('res'); sel.innerHTML=d.formats.map(f=>`<option value="${f.w},${f.h},30">${f.w}×${f.h}</option>`).join('');
+    const p=pickRes(d.formats);
+    const def=[...sel.options].find(o=>o.value.startsWith(`${p.w},${p.h}`)); if(def) sel.value=def.value;
+  }catch(e){}
+}
+
+// ---------------- Regolazioni immagine ----------------
+async function loadControls(){
+  try{ const d=await fetch('/api/controls').then(r=>r.json()); const box=$('imgctrls');
+    if(!d.controls||!d.controls.length){ box.textContent='(nessun controllo / stream non aperto)'; return; }
+    // Il firmware del clone IGNORA questi (pixel-test 2026-06-24 + sweep V4L2 2026-07-03,
+    // gain incluso: delta luma ~0 a 0/4/8/14). Vivo solo backlight (e solo al rialzo).
+    const DEAD=new Set(['brightness','contrast','hue','white_balance','sharpness','power_line_freq','gain']);
+    const ctrls=d.controls.filter(c=>!DEAD.has(c.name));
+    if(!ctrls.length){ box.textContent='(nessun controllo efficace su questo firmware)'; return; }
+    box.innerHTML=ctrls.map(c=> c.toggle
+      ? `<div class="sg"><label>${nm(c.name)}</label><span class="tog">
+           <button class="btn" onclick="setCtrl(${c.id},1)">On</button>
+           <button class="btn" onclick="setCtrl(${c.id},0)">Off</button></span><span class="v"></span></div>`
+      : `<div class="sg"><label>${nm(c.name)}</label>
+           <input type="range" min="${c.min}" max="${c.max}" value="${c.cur}"
+                  oninput="document.getElementById('v${c.id}').textContent=this.value"
+                  onchange="setCtrl(${c.id},this.value)">
+           <span class="v" id="v${c.id}">${c.cur}</span></div>`
+    ).join('');
+  }catch(e){ $('imgctrls').textContent='errore: '+e.message; }
+}
+const nm=s=>s.replace(/_/g,' ');
+window.setCtrl=(id,val)=>wsSend({t:"ctrl",id:+id,value:+val});
+
+// ---------------- Luminosita'/gamma software (canale Y in pipeline, persiste sul box) ----------------
+// Con AE attivo il gain lo pilota il nativo (loop su luma media) e lo slider = target.
+let lumaAe=false;
+function reflectAe(){ $('l-ae').classList.toggle('on',lumaAe); $('l-ae').textContent=lumaAe?'☀ Auto ON':'☀ Auto OFF'; }
+async function loadLuma(){
+  try{ const d=await fetch('/api/luma').then(r=>r.json());
+    $('l-gain').value=d.gain;   $('l-gainv').textContent=d.gain+'%';
+    $('l-gamma').value=d.gamma; $('l-gammav').textContent=(d.gamma/100).toFixed(2);
+    lumaAe=!!d.ae; reflectAe();
+  }catch(e){}
+}
+window.setLuma=async()=>{
+  const g=+$('l-gain').value, gm=+$('l-gamma').value;
+  const d=await fetch(`/api/luma?gain=${g}&gamma=${gm}&ae=${lumaAe?1:0}`).then(r=>r.json()).catch(()=>null);
+  if(!(d&&d.ok)) toast('Errore luminosità software');
+};
+$('l-ae').onclick=()=>{ lumaAe=!lumaAe; reflectAe(); setLuma(); };
+$('l-reset').onclick=()=>{
+  $('l-gain').value=100;  $('l-gainv').textContent='100%';
+  $('l-gamma').value=100; $('l-gammav').textContent='1.00';
+  lumaAe=false; reflectAe();
+  setLuma();
+};
+
+// ---------------- Luci Home Assistant ----------------
+async function loadLights(){
+  try{ const d=await fetch('/api/lights').then(r=>r.json()); const box=$('lights');
+    if(!d.lights||!d.lights.length){ box.textContent='(nessuna luce disponibile)'; return; }
+    box.innerHTML=d.lights.map(light=>{
+      const isOn=light.state==='on'; const isUnavail=light.state==='unavailable';
+      const btnClass=`btn light-btn${isOn?' on':''}${isUnavail?' unavail':''}`;
+      return `<button class="${btnClass}" onclick="toggleLight('${light.entityId}')" ${isUnavail?'disabled':''}>
+        💡 ${light.label}${isUnavail?' (non disp.)':isOn?' ◌':''}</button>`;
+    }).join('');
+  }catch(e){ $('lights').textContent='errore: '+e.message; }
+}
+window.toggleLight=(id)=>{
+  fetch('/api/lights/toggle?id='+encodeURIComponent(id)).then(r=>r.json()).then(d=>{
+    if(d.ok){ toast('Luce aggiornata'); loadLights(); }
+    else toast('Errore: '+(d.error||'?'));
+  }).catch(()=>toast('Errore toggleLight'));
+};
+
+// ---------------- Accessi / permessi (Cloudflare Access) ----------------
+// L'identita' arriva dall'header Cf-Access-Authenticated-User-Email iniettato da cloudflared.
+// I permessi sono APPLICATI lato server (autoritativi); qui riflettiamo solo la UI:
+// nascondiamo cio' che l'utente non puo' usare e mostriamo la gestione all'admin.
+window.PERMS=null;
+const CAP_LABELS={ptz:'PTZ',stream:'Stream',image:'Immagine',snapshot:'Foto',presets:'Preset',lights:'Luci',system:'Sistema'};
+function capLabel(c){ return CAP_LABELS[c]||c; }
+
+function secVis(id,on){ const el=$(id); if(el) el.style.display=on?'':'none'; }
+function elVis(id,on){ const el=$(id); if(el) el.style.display=on?'':'none'; }
+
+async function loadWhoami(){
+  try{ const w=await fetch('/api/access/whoami').then(r=>r.json()); applyPerms(w); }catch(e){}
+}
+function applyPerms(w){
+  if(!w||!w.caps) return; window.PERMS=w; const c=w.caps;
+  if(w.blocked){ showBlocked(); return; }
+  // sezioni settaggi
+  secVis('sec-stream', c.stream);
+  secVis('sec-lights', c.lights);
+  secVis('sec-system', c.system);
+  secVis('sec-image', c.image);
+  // Camera: bottoni misti (reset=stream, foto=snapshot); nascondi la sezione se nulla e' permesso
+  elVis('s-reset', c.stream); elVis('s-snap', c.snapshot); elVis('s-hires', c.snapshot); elVis('s-rec', c.snapshot);
+  secVis('sec-camera', c.stream||c.snapshot);
+  // pilotaggio: joystick/zoom/home (ptz), pagina posizioni (presets)
+  setDriveEnabled('stick', c.ptz); setDriveEnabled('lever', c.ptz);
+  elVis('b-home', c.ptz);
+  elVis('b-pre', c.presets);
+  // etichetta identita' + hint admin
+  const me=$('acc-me'); if(me){
+    const role=w.admin?'amministratore':(w.lan?'LAN':'utente');
+    me.textContent='Sei: '+(w.display||'?')+' — '+role;
+  }
+  secVis('acc-hint', !!w.admin);   // nota gestione visibile solo all'admin (span, usa hint)
+  const hint=$('acc-hint'); if(hint) hint.style.display=w.admin?'':'none';
+}
+function setDriveEnabled(id,on){ const el=$(id); if(!el) return;
+  el.style.opacity=on?'':'0.35'; el.style.pointerEvents=on?'':'none'; }
+
+let blockedShown=false;
+function showBlocked(){
+  if(blockedShown) return; blockedShown=true;
+  try{ stopStream(); }catch(e){}
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;inset:0;z-index:999;display:grid;place-items:center;text-align:center;'+
+    'background:#0d1117;color:#e6edf3;padding:24px;font-size:16px;';
+  d.innerHTML='<div><div style="font-size:40px">🚫</div><h2 style="margin:12px 0">Accesso bloccato</h2>'+
+    '<p style="color:#7d8590;max-width:340px">L\'amministratore ha bloccato questo accesso. '+
+    'Contatta il proprietario della camera.</p></div>';
+  document.body.appendChild(d);
+}
+
+// Lista utenti collegati + gestione (admin). Poll mentre la sezione settaggi e' aperta.
+let accTimer=null;
+async function loadAccess(){
+  try{ const d=await fetch('/api/access/list').then(r=>r.json()); renderAccess(d); }
+  catch(e){ const b=$('acclist'); if(b) b.textContent='errore caricamento accessi'; }
+}
+function renderAccess(d){
+  const box=$('acclist'); if(!box) return; box.innerHTML='';
+  const admin=!!d.admin;
+  if(!d.users||!d.users.length){ box.textContent=admin?'nessun utente':'nessun altro collegato'; return; }
+  d.users.forEach(u=>{
+    const row=document.createElement('div'); row.className='pitem'; row.style.flexWrap='wrap';
+    const dot=u.connected?'🟢':'⚪';
+    const tags=[]; if(u.you)tags.push('tu'); if(u.lan)tags.push('LAN'); if(u.isAdmin)tags.push('admin');
+    if(u.blocked)tags.push('<span style="color:#ff8a8a">bloccato</span>');
+    const head=document.createElement('div');
+    head.style.cssText='flex:1 1 100%;display:flex;align-items:center;gap:8px;min-width:0;';
+    head.innerHTML=`<span>${dot}</span><b style="word-break:break-all">${esc(u.display)}</b>`+
+      (tags.length?` <small style="color:var(--mut)">(${tags.join(', ')})</small>`:'');
+    row.appendChild(head);
+    // Gestione: solo admin, solo su email remote diverse da se stesso e non protette
+    if(admin && u.email && !u.you && !u.locked){
+      const ctr=document.createElement('div');
+      ctr.style.cssText='flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;';
+      (d.capList||[]).forEach(cap=>{
+        const on=u.caps&&u.caps[cap]; const b=document.createElement('button');
+        b.className='btn'+(on?' p':''); b.textContent=capLabel(cap);
+        b.style.cssText='padding:5px 9px;font-size:12px;'+(u.blocked?'opacity:.4;':'');
+        b.disabled=!!u.blocked;
+        b.onclick=()=>toggleCap(u,cap,!on,d);
+        ctr.appendChild(b);
+      });
+      const blk=document.createElement('button');
+      blk.className='btn'+(u.blocked?'':' stop'); blk.textContent=u.blocked?'✔ Sblocca':'⛔ Blocca';
+      blk.style.cssText='padding:5px 9px;font-size:12px;';
+      blk.onclick=()=>setAccess(u.email,{blocked:u.blocked?'0':'1'});
+      ctr.appendChild(blk);
+      row.appendChild(ctr);
+    }
+    box.appendChild(row);
+  });
+}
+function toggleCap(u,cap,on,d){
+  const caps=(d.capList||[]).filter(c=> c===cap ? on : (u.caps&&u.caps[c]));
+  setAccess(u.email,{caps:caps.join(',')});
+}
+function setAccess(email,params){
+  const q=new URLSearchParams(Object.assign({email},params)).toString();
+  fetch('/api/access/set?'+q).then(r=>r.json()).then(r=>{
+    toast(r.ok?'Permessi aggiornati':'Modifica rifiutata'); loadAccess();
+  }).catch(()=>toast('Errore aggiornamento'));
+}
+function startAccPoll(){ loadAccess(); clearInterval(accTimer); accTimer=setInterval(loadAccess,4000); }
+function stopAccPoll(){ clearInterval(accTimer); accTimer=null; }
+
+// ---------------- Toggle pannello + fullscreen ----------------
+// viste mutuamente esclusive: drive (default) | settings | presets
+function toggleMode(){
+  document.body.classList.remove('premode'); $('b-pre').classList.remove('on');
+  const on=document.body.classList.toggle('setmode');
+  $('b-mode').classList.toggle('on',on); $('fab').classList.toggle('on',on);
+  if(on){ loadControls(); loadLuma(); loadWhoami(); startAccPoll(); } else stopAccPoll();
+}
+function togglePre(){
+  document.body.classList.remove('setmode'); $('b-mode').classList.remove('on'); $('fab').classList.remove('on');
+  stopAccPoll();
+  const on=document.body.classList.toggle('premode');
+  $('b-pre').classList.toggle('on',on);
+  if(on) wsSend({t:"presetList"});
+}
+$('b-mode').onclick=toggleMode; $('fab').onclick=toggleMode;
+$('b-pre').onclick=togglePre;
+
+// ---------------- Posizioni salvate (preset / multi-home) ----------------
+let presetList=[];
+function renderPresets(list){
+  presetList=list||[];
+  const box=$('plist'); box.innerHTML='';
+  if(!list||!list.length){ box.textContent='nessuna posizione'; return; }
+  list.forEach(p=>{
+    const row=document.createElement('div'); row.className='pitem';
+    const go=document.createElement('button'); go.className='pgo';
+    go.innerHTML=`${esc(p.name)} <small>P ${(p.pan/3600).toFixed(0)}° · T ${(p.tilt/3600).toFixed(0)}° · Z ${Math.round(100*(p.zoom-L.zoomMin)/(L.zoomMax-L.zoomMin||1))}%</small>`;
+    go.onclick=()=>{ stopTour(); wsSend({t:"presetGo",id:p.id}); toast('Vado a '+p.name); };
+    const ren=document.createElement('button'); ren.className='pbtn'; ren.textContent='✎'; ren.title='Rinomina';
+    ren.onclick=()=>{ const n=prompt('Nome posizione:',p.name); if(n!==null) wsSend({t:"presetRename",id:p.id,name:n}); };
+    const del=document.createElement('button'); del.className='pbtn del'; del.textContent='🗑'; del.title='Elimina';
+    del.onclick=()=>{ if(confirm('Eliminare "'+p.name+'"?')) wsSend({t:"presetDel",id:p.id}); };
+    row.append(go,ren,del); box.append(row);
+  });
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+$('p-save').onclick=()=>{ const n=prompt('Nome posizione (vuoto = automatico):',''); wsSend({t:"presetSave",name:n||undefined}); toast('Posizione salvata'); };
+
+// ---------------- Tour (patrol) tra le posizioni salvate ----------------
+// Cicla i preset nell'ordine della lista con la sosta scelta. Gira lato FE (vive quanto
+// la pagina): si ferma al toggle del bottone o al primo comando manuale (joystick, leva
+// zoom, home, tap sul video, tap su un preset).
+let tourTimer=null, tourIdx=0;
+function startTour(){
+  if(!presetList.length){ toast('Nessuna posizione salvata'); return; }
+  stopTour(); tourIdx=0;
+  const dwell=(+$('p-dwell').value||10)*1000;
+  const step=()=>{ const p=presetList[tourIdx%presetList.length]; tourIdx++;
+    wsSend({t:"presetGo",id:p.id}); toast('Tour: '+p.name); };
+  step(); tourTimer=setInterval(step,dwell);
+  $('p-tour').classList.add('on'); $('p-tour').textContent='■ Tour';
+}
+function stopTour(){
+  if(!tourTimer) return;
+  clearInterval(tourTimer); tourTimer=null;
+  $('p-tour').classList.remove('on'); $('p-tour').textContent='▶ Tour';
+  toast('Tour fermato');
+}
+$('p-tour').onclick=()=> tourTimer?stopTour():startTour();
+document.addEventListener('pointerdown',e=>{
+  if(tourTimer && e.target.closest('#stick,#lever,#b-home')) stopTour();
+});
+$('b-fs').onclick=()=>{ const el=document.documentElement;
+  if(!document.fullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el); }
+  else{ (document.exitFullscreen||document.webkitExitFullscreen||(()=>{})).call(document); } };
+
+// ---------------- Registrazione clip video lato client (MediaRecorder) ----------------
+let mediaRecorder=null, recordChunks=[], isRecording=false, recordTimer=null;
+let recordCanvas=null, recordCtx=null, recordAnimId=null;
+
+function initRecord(){
+  const btn=$('s-rec');
+  btn.textContent='⏺ REC';
+  btn.classList.remove('recording');
+
+  if(isRecording){ stopRecord(); return; }
+
+  // Determinare la source: canvas HW o fallback MJPEG
+  let stream=null;
+  const cv=$('vcanvas');
+  if(hwVideoOn && cv.style.display!=='none'){
+    // Canvas HW attivo
+    stream=cv.captureStream(25);
+  }else{
+    // Fallback: canvas di registrazione che copia l'img MJPEG
+    if(!recordCanvas){
+      recordCanvas=document.createElement('canvas');
+      recordCtx=recordCanvas.getContext('2d');
+    }
+    const img=$('video');
+    if(img.naturalWidth>0){ recordCanvas.width=img.naturalWidth; recordCanvas.height=img.naturalHeight; }
+    else{ recordCanvas.width=640; recordCanvas.height=480; }
+
+    // Loop rAF che disegna l'img sul canvas
+    function copyFrame(){
+      try{
+        if(recordCtx && img.naturalWidth>0){
+          recordCtx.drawImage(img,0,0);
+        }
+      }catch(e){}
+      if(isRecording) recordAnimId=requestAnimationFrame(copyFrame);
+    }
+    recordAnimId=requestAnimationFrame(copyFrame);
+    stream=recordCanvas.captureStream(25);
+  }
+
+  if(!stream){ toast('Registrazione non supportata'); return; }
+
+  // Determina il codec supportato
+  let mimeType='video/webm;codecs=vp9';
+  if(!MediaRecorder.isTypeSupported(mimeType)){
+    mimeType='video/webm;codecs=vp8';
+    if(!MediaRecorder.isTypeSupported(mimeType)){
+      mimeType='video/webm';
+      if(!MediaRecorder.isTypeSupported(mimeType)){
+        toast('Nessun codec WebM supportato'); return;
+      }
+    }
+  }
+
+  recordChunks=[];
+  mediaRecorder=new MediaRecorder(stream,{mimeType});
+  mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) recordChunks.push(e.data); };
+  mediaRecorder.onstop=()=>{
+    const blob=new Blob(recordChunks,{type:mimeType});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url;
+    a.download='clip-'+Date.now()+'.webm';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('Clip salvata');
+    mediaRecorder=null;
+  };
+
+  recordChunks=[];
+  mediaRecorder.start();
+  isRecording=true;
+
+  btn.textContent='⏹ Stop';
+  btn.classList.add('recording');
+  let seconds=0;
+  recordTimer=setInterval(()=>{
+    seconds++;
+    btn.textContent=`⏹ Stop (${seconds}s)`;
+  },1000);
+}
+
+function stopRecord(){
+  if(!isRecording) return;
+  isRecording=false;
+  clearInterval(recordTimer); recordTimer=null;
+  if(mediaRecorder && mediaRecorder.state!=='inactive'){ mediaRecorder.stop(); }
+  if(recordAnimId){ cancelAnimationFrame(recordAnimId); recordAnimId=null; }
+  const btn=$('s-rec');
+  btn.textContent='⏺ REC';
+  btn.classList.remove('recording');
+}
+
+// Gestore per stopStream (interrompi registrazione se attiva)
+const origStopStream=stopStream;
+stopStream=function(){ origStopStream.call(this); if(isRecording) stopRecord(); };
+
+$('s-rec').onclick=initRecord;
+
+// CSS per lo stato "recording" (lampeggiante rosso)
+const style=document.createElement('style');
+style.textContent=`
+  #s-rec.recording{
+    background:var(--stop) !important; border-color:var(--stop) !important;
+    animation: blink-rec 1s infinite;
+  }
+  @keyframes blink-rec{
+    0%,49%{ opacity:1; }
+    50%,100%{ opacity:0.5; }
+  }
+`;
+document.head.appendChild(style);
+
+// ---------------- Avvio ----------------
+(async()=>{ await loadWhoami(); await loadRes(); wsConnect(); startStream(); updateTelemetry(); loadLights(); })();
+</script>
+</body>
+</html>

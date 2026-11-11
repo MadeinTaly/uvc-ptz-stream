@@ -1,0 +1,24 @@
+# Build
+app/build/
+build/
+.gradle/
+app/.cxx/
+*.apk
+*.aab
+local.properties
+
+# Android SDK, if kept next to the project
+android-sdk/
+
+# Third-party sources fetched by setup-native.sh
+libusb/
+libuvc/
+
+# Native probe binary
+nativetest/uvc_probe
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
